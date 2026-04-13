@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suriname Mining Monitor</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    #map { width: 100vw; height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      width: 280px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      z-index: 10;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 16px;
+      background: #1a1a2e;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sidebar-header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .sidebar-header .logo {
+      width: 28px;
+      height: 28px;
+      background: #e6a817;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .sidebar-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #eee;
+    }
+    .sidebar-section h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Layer toggles */
+    .layer-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .layer-toggle input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #e6a817;
+    }
+    .layer-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* Year slider */
+    .year-control {
+      padding: 14px 16px;
+    }
+    .year-display {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 8px;
+    }
+    .year-slider {
+      width: 100%;
+      accent-color: #e6a817;
+    }
+    .year-range {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #999;
+      margin-top: 4px;
+    }
+
+    /* Legend */
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 13px;
+      color: #444;
+    }
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(26, 26, 46, 0.9);
+      color: #fff;
+      padding: 16px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 20;
+      display: none;
+    }
+    .loading-overlay.active { display: block; }
+
+    /* Opacity control */
+    .opacity-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #666;
+    }
+    .opacity-control input {
+      flex: 1;
+      accent-color: #e6a817;
+    }
+
+    /* Info badge */
+    .info-badge {
+      position: absolute;
+      bottom: 30px;
+      left: 12px;
+      background: #fff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      font-size: 12px;
+      color: #666;
+      z-index: 10;
+    }
+    .info-badge a {
+      color: #e6a817;
+      text-decoration: none;
+    }
+
+    /* All coverage toggle */
+    .coverage-mode {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .coverage-btn {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .coverage-btn.active {
+      background: #1a1a2e;
+      color: #fff;
+      border-color: #1a1a2e;
+    }
+
+    /* Mobile toggle button */
+    .sidebar-toggle {
+      display: none;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      width: 40px;
+      height: 40px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 20px;
+      z-index: 11;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 600px) {
+      .sidebar {
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: auto;
+        max-height: 70vh;
+        border-radius: 0 0 14px 14px;
+        overflow-y: auto;
+        transform: translateY(-100%);
+        transition: transform 0.3s ease;
+      }
+      .sidebar.open {
+        transform: translateY(0);
+      }
+      .sidebar-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .sidebar.open ~ .sidebar-toggle {
+        display: none;
+      }
+      .sidebar-header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      .sidebar-close {
+        display: block !important;
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: #fff;
+        font-size: 22px;
+        cursor: pointer;
+      }
+      .info-badge {
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+    }
+    @media (min-width: 601px) {
+      .sidebar-close { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.add('open')">☰</button>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">⛏</div>
+      <h1>Suriname Mining Monitor</h1>
+      <button class="sidebar-close" onclick="document.querySelector('.sidebar').classList.remove('open')">✕</button>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Display Mode</h3>
+      <div class="coverage-mode">
+        <button class="coverage-btn active" data-mode="mining" onclick="switchMode('mining')">Mining Only</button>
+        <button class="coverage-btn" data-mode="all" onclick="switchMode('all')">All Coverage</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Layers</h3>
+      <label class="layer-toggle">
+        <input type="checkbox" id="toggle-coverage" checked onchange="toggleLayer()">
+        <span class="layer-color" style="background: #af2a2a;"></span>
+        <span>MapBiomas Coverage</span>
+      </label>
+      <div class="opacity-control">
+        <span>Opacity</span>
+        <input type="range" id="opacity-slider" min="0" max="100" value="80" oninput="setOpacity(this.value)">
+        <span id="opacity-val">80%</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section" id="legend-section">
+      <h3>Legend</h3>
+      <div id="legend-mining">
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #af2a2a;"></div>
+          <span>Mining</span>
+        </div>
+      </div>
+      <div id="legend-all" style="display:none;">
+        <div class="legend-item"><div class="legend-dot" style="background: #1f8d49;"></div><span>Forest Formation</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #7dc975;"></div><span>Savanna Formation</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #04381d;"></div><span>Mangrove</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #026975;"></div><span>Floodable Forest</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #02d659;"></div><span>Wooded Sandbank Vegetation</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #ad975a;"></div><span>Other Non-Forest Formations</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #ffd966;"></div><span>Pasture</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #e6b655;"></div><span>Agriculture</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #af2a2a;"></div><span>Mining</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #d082de;"></div><span>Urban</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #0000ff;"></div><span>River, Lake, Ocean</span></div>
+        <div class="legend-item"><div class="legend-dot" style="background: #d68fe2;"></div><span>Non-Observed</span></div>
+      </div>
+    </div>
+
+    <div class="year-control">
+      <h3 style="font-size:12px;text-transform:uppercase;color:#888;letter-spacing:0.5px;margin-bottom:10px;">Year</h3>
+      <div class="year-display" id="year-display">2023</div>
+      <input type="range" class="year-slider" id="year-slider" min="1985" max="2023" value="2023" oninput="onYearChange(this.value)">
+      <div class="year-range">
+        <span>1985</span>
+        <span>2000</span>
+        <span>2023</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loading">Loading tiles...</div>
+
+  <div class="info-badge">
+    Powered by minesTech
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script>
+    // Config
+    const MAPBIOMAS_API = 'https://prd.plataforma.mapbiomas.org/api/v1/pan-amazonia/maps/map/';
+    const SURINAME_CENTER = [-55.9, 4.0];
+    const SURINAME_ZOOM = 7;
+
+    // Mining pixel value = 30
+    const MINING_PIXELS = [30];
+    // All coverage pixel values
+    const ALL_PIXELS = [3,4,5,6,11,12,29,13,15,18,9,35,21,23,24,30,68,25,33,34,27];
+
+    let currentYear = 2023;
+    let currentMode = 'mining';
+    let map;
+    let debounceTimer;
+
+    // Initialize map
+    map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {
+          'satellite': {
+            type: 'raster',
+            tiles: [
+              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            ],
+            tileSize: 256,
+            attribution: ''
+          }
+        },
+        layers: [{
+          id: 'satellite-layer',
+          type: 'raster',
+          source: 'satellite',
+          minzoom: 0,
+          maxzoom: 19
+        }]
+      },
+      center: SURINAME_CENTER,
+      zoom: SURINAME_ZOOM,
+      maxBounds: [[-58.5, 1.5], [-53.5, 6.5]],
+      attributionControl: false
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 150 }), 'bottom-right');
+
+    map.on('load', () => {
+      loadMapBiomasTiles(currentYear, getPixels());
+      loadSurinameBorder();
+    });
+
+    async function loadSurinameBorder() {
+      try {
+        const resp = await fetch('https://geodata.ucdavis.edu/gadm/gadm4.1/json/gadm41_SUR_0.json');
+        const geojson = await resp.json();
+
+        map.addSource('suriname-border', {
+          type: 'geojson',
+          data: geojson
+        });
+
+        // Border outline
+        map.addLayer({
+          id: 'suriname-border-line',
+          type: 'line',
+          source: 'suriname-border',
+          paint: {
+            'line-color': '#e6a817',
+            'line-width': 2.5,
+            'line-dasharray': [3, 2]
+          }
+        });
+
+        // Country label
+        map.addLayer({
+          id: 'suriname-label',
+          type: 'symbol',
+          source: 'suriname-border',
+          layout: {
+            'text-field': 'SURINAME',
+            'text-size': 14,
+            'text-font': ['Open Sans Bold'],
+            'text-letter-spacing': 0.3
+          },
+          paint: {
+            'text-color': '#e6a817',
+            'text-halo-color': 'rgba(0,0,0,0.7)',
+            'text-halo-width': 1.5
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load Suriname border:', err);
+      }
+    }
+
+    function getPixels() {
+      return currentMode === 'mining' ? MINING_PIXELS : ALL_PIXELS;
+    }
+
+    async function loadMapBiomasTiles(year, pixelValues) {
+      const loading = document.getElementById('loading');
+      loading.classList.add('active');
+
+      try {
+        const params = new URLSearchParams();
+        params.set('territoryId', '19-72-1');
+        params.set('subthemeKey', 'coverage_lclu');
+        params.set('legendKey', 'default');
+        params.set('year', year.toString());
+        params.set('view3D', 'false');
+        params.set('territoryCategoryId', '68');
+        pixelValues.forEach(v => params.append('pixelValue', v.toString()));
+
+        const resp = await fetch(`${MAPBIOMAS_API}?${params}`);
+        const data = await resp.json();
+
+        if (!data.url) {
+          console.error('No tile URL returned', data);
+          loading.classList.remove('active');
+          return;
+        }
+
+        // Remove old layer and source
+        if (map.getLayer('mapbiomas-layer')) {
+          map.removeLayer('mapbiomas-layer');
+        }
+        if (map.getSource('mapbiomas')) {
+          map.removeSource('mapbiomas');
+        }
+
+        // Add new source and layer
+        map.addSource('mapbiomas', {
+          type: 'raster',
+          tiles: [data.url],
+          tileSize: 256
+        });
+
+        const opacity = parseInt(document.getElementById('opacity-slider').value) / 100;
+        map.addLayer({
+          id: 'mapbiomas-layer',
+          type: 'raster',
+          source: 'mapbiomas',
+          paint: {
+            'raster-opacity': opacity
+          }
+        });
+
+        loading.classList.remove('active');
+      } catch (err) {
+        console.error('Failed to load MapBiomas tiles:', err);
+        loading.classList.remove('active');
+      }
+    }
+
+    function onYearChange(year) {
+      document.getElementById('year-display').textContent = year;
+      currentYear = parseInt(year);
+
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadMapBiomasTiles(currentYear, getPixels());
+      }, 300);
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.coverage-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+
+      document.getElementById('legend-mining').style.display = mode === 'mining' ? 'block' : 'none';
+      document.getElementById('legend-all').style.display = mode === 'all' ? 'block' : 'none';
+
+      loadMapBiomasTiles(currentYear, getPixels());
+    }
+
+    function toggleLayer() {
+      const visible = document.getElementById('toggle-coverage').checked;
+      if (map.getLayer('mapbiomas-layer')) {
+        map.setLayoutProperty('mapbiomas-layer', 'visibility', visible ? 'visible' : 'none');
+      }
+    }
+
+    function setOpacity(val) {
+      document.getElementById('opacity-val').textContent = val + '%';
+      if (map.getLayer('mapbiomas-layer')) {
+        map.setPaintProperty('mapbiomas-layer', 'raster-opacity', parseInt(val) / 100);
+      }
+    }
+  </script>
+</body>
+</html>
