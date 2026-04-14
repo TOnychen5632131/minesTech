@@ -660,6 +660,104 @@ def get_amw_period(period):
         return jsonify(json.load(f))
 
 
+@app.route('/api/landcover/<int:year>')
+def get_landcover(year):
+    """Return land use/land cover classification tiles.
+
+    Uses ESA WorldCover (10m) for 2020/2021, and Dynamic World for other years.
+    Classes are color-coded: forest=green, mining/bare=brown, water=blue, etc.
+    """
+    cache_key = f'landcover_{year}'
+    if cache_key in tile_cache:
+        cached = tile_cache[cache_key]
+        if time.time() - cached['time'] < CACHE_TTL:
+            return jsonify({'url': cached['url'], 'year': year, 'source': cached['source'], 'legend': cached['legend']})
+
+    try:
+        # ESA WorldCover: available for 2020 and 2021 (10m, very accurate)
+        if year in (2020, 2021):
+            collection_id = 'ESA/WorldCover/v100' if year == 2020 else 'ESA/WorldCover/v200'
+            wc = ee.ImageCollection(collection_id).first().clip(get_suriname())
+            # ESA WorldCover has built-in classes: 10=Trees, 20=Shrub, 30=Grass,
+            # 40=Cropland, 50=Built-up, 60=Bare/sparse(mining!), 70=Snow, 80=Water,
+            # 90=Wetland, 95=Mangrove, 100=Moss
+            vis = wc.getMapId({
+                'min': 10, 'max': 100,
+                'palette': [
+                    '006400',  # 10 Trees - dark green
+                    'ffbb22',  # 20 Shrubland - orange
+                    'ffff4c',  # 30 Grassland - yellow
+                    'f096ff',  # 40 Cropland - pink
+                    'fa0000',  # 50 Built-up - red
+                    'b4b4b4',  # 60 Bare/sparse (MINING) - grey
+                    'f0f0f0',  # 70 Snow/ice - white
+                    '0064c8',  # 80 Water - blue
+                    '0096a0',  # 90 Herbaceous wetland - teal
+                    '00cf75',  # 95 Mangrove - sea green
+                    'fae6a0',  # 100 Moss/lichen - light yellow
+                ]
+            })
+            legend = [
+                {'color': '#006400', 'label': 'Tree Cover'},
+                {'color': '#ffbb22', 'label': 'Shrubland'},
+                {'color': '#ffff4c', 'label': 'Grassland'},
+                {'color': '#f096ff', 'label': 'Cropland'},
+                {'color': '#fa0000', 'label': 'Built-up'},
+                {'color': '#b4b4b4', 'label': 'Bare / Mining'},
+                {'color': '#0064c8', 'label': 'Water'},
+                {'color': '#0096a0', 'label': 'Wetland'},
+                {'color': '#00cf75', 'label': 'Mangrove'},
+            ]
+            source = 'esa_worldcover'
+        else:
+            # Dynamic World (Google): near-real-time, 10m, Sentinel-2 based
+            start = f'{year}-01-01'
+            end = f'{year}-12-31'
+            dw = (ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')
+                  .filterDate(start, end)
+                  .filterBounds(get_suriname())
+                  .select('label')
+                  .mode()
+                  .clip(get_suriname()))
+            # Dynamic World classes: 0=water, 1=trees, 2=grass, 3=flooded_veg,
+            # 4=crops, 5=shrub, 6=built, 7=bare(mining!), 8=snow_ice
+            vis = dw.getMapId({
+                'min': 0, 'max': 8,
+                'palette': [
+                    '419bdf',  # 0 Water - blue
+                    '397d49',  # 1 Trees - green
+                    '88b053',  # 2 Grass - light green
+                    '7a87c6',  # 3 Flooded vegetation - purple
+                    'e49635',  # 4 Crops - orange
+                    'dfc35a',  # 5 Shrub/scrub - yellow
+                    'c4281b',  # 6 Built area - red
+                    'a59b8f',  # 7 Bare ground (MINING) - brown/grey
+                    'b39fe1',  # 8 Snow/ice - light purple
+                ]
+            })
+            legend = [
+                {'color': '#419bdf', 'label': 'Water'},
+                {'color': '#397d49', 'label': 'Trees'},
+                {'color': '#88b053', 'label': 'Grass'},
+                {'color': '#7a87c6', 'label': 'Flooded Vegetation'},
+                {'color': '#e49635', 'label': 'Crops'},
+                {'color': '#dfc35a', 'label': 'Shrub/Scrub'},
+                {'color': '#c4281b', 'label': 'Built Area'},
+                {'color': '#a59b8f', 'label': 'Bare Ground / Mining'},
+                {'color': '#b39fe1', 'label': 'Snow/Ice'},
+            ]
+            source = 'dynamic_world'
+
+        tile_url = vis['tile_fetcher'].url_format
+        tile_cache[cache_key] = {
+            'url': tile_url, 'time': time.time(),
+            'source': source, 'legend': legend
+        }
+        return jsonify({'url': tile_url, 'year': year, 'source': source, 'legend': legend})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/list')
 def list_saved():
     """List all saved detection files."""

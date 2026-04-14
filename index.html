@@ -472,6 +472,17 @@
         <div class="opacity-control"><input type="range" id="opacity-timeline" min="0" max="100" value="80" oninput="setTimelineOpacity(this.value)" style="flex:1;"><span id="opacity-timeline-val" style="min-width:28px;text-align:right;">80%</span></div>
 
         <label class="layer-toggle" style="margin-top:8px;">
+          <input type="checkbox" id="toggle-landcover" onchange="toggleLandCover()">
+          <span class="layer-color" style="background: linear-gradient(135deg, #006400, #b4b4b4, #0064c8); border-radius:3px;"></span>
+          <span>Land Classification</span>
+        </label>
+        <div id="landcover-controls" style="display:none;padding-left:28px;">
+          <div class="opacity-control"><span style="font-size:10px;">Opacity</span><input type="range" id="opacity-landcover" min="0" max="100" value="75" oninput="setLandCoverOpacity(this.value)" style="flex:1;"><span id="opacity-landcover-val" style="min-width:28px;text-align:right;font-size:10px;">75%</span></div>
+          <div id="landcover-legend" style="font-size:10px;margin-top:4px;"></div>
+          <div id="landcover-status" style="font-size:10px;color:#888;margin-top:2px;"></div>
+        </div>
+
+        <label class="layer-toggle" style="margin-top:8px;">
           <input type="checkbox" id="toggle-terrain-view" onchange="toggleTerrainView()">
           <span class="layer-color" style="background: linear-gradient(135deg, #5d4037, #8d6e63, #a1887f); border-radius:3px;"></span>
           <span>Terrain View</span>
@@ -1643,6 +1654,10 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
       debounceTimer = setTimeout(() => {
         loadDetectedMining(currentDetectionYear);
         loadHistoricalBasemap(currentDetectionYear);
+        // Sync land cover if active
+        if (document.getElementById('toggle-landcover').checked) {
+          loadLandCover(currentDetectionYear);
+        }
       }, 300);
 
       // Sync AMW period when user drags the year slider (not when AMW triggered it)
@@ -1728,6 +1743,86 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
       document.getElementById('exaggeration-val').textContent = val + 'x';
       if (is3D) {
         map.setTerrain({ source: 'terrain-dem', exaggeration: parseFloat(val) });
+      }
+    }
+
+    // ── Land Cover Classification ──
+
+    let landCoverYear = null;
+
+    async function toggleLandCover() {
+      const on = document.getElementById('toggle-landcover').checked;
+      document.getElementById('landcover-controls').style.display = on ? 'block' : 'none';
+
+      if (on) {
+        await loadLandCover(currentDetectionYear);
+      } else {
+        if (map.getLayer('landcover-layer')) map.removeLayer('landcover-layer');
+        if (map.getSource('landcover')) map.removeSource('landcover');
+        landCoverYear = null;
+      }
+    }
+
+    async function loadLandCover(year) {
+      const status = document.getElementById('landcover-status');
+      status.textContent = 'Loading classification...';
+
+      const urls = IS_LOCAL
+        ? [`${window.location.origin}/api/landcover/${year}`, `http://localhost:5001/api/landcover/${year}`]
+        : [`/api/landcover/${year}`];
+
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const data = await resp.json();
+          if (data.url) {
+            applyLandCoverTiles(data.url, year);
+            // Render legend
+            if (data.legend) {
+              const legendEl = document.getElementById('landcover-legend');
+              legendEl.innerHTML = data.legend.map(item =>
+                `<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">` +
+                `<span style="display:inline-block;width:10px;height:10px;background:${item.color};border-radius:2px;flex-shrink:0;"></span>` +
+                `<span>${item.label}</span></div>`
+              ).join('');
+            }
+            const srcLabel = data.source === 'esa_worldcover' ? 'ESA WorldCover 10m' : 'Google Dynamic World 10m';
+            status.textContent = `${srcLabel} · ${year}`;
+            return;
+          }
+        } catch (e) { /* try next */ }
+      }
+      status.textContent = 'Requires local GEE backend (server.py)';
+    }
+
+    function applyLandCoverTiles(tileUrl, year) {
+      if (map.getLayer('landcover-layer')) map.removeLayer('landcover-layer');
+      if (map.getSource('landcover')) map.removeSource('landcover');
+
+      map.addSource('landcover', {
+        type: 'raster',
+        tiles: [tileUrl],
+        tileSize: 256
+      });
+
+      const opacity = parseInt(document.getElementById('opacity-landcover').value) / 100;
+      // Insert above satellite but below detection layers
+      const firstLayerId = map.getStyle().layers[1]?.id || undefined;
+      map.addLayer({
+        id: 'landcover-layer',
+        type: 'raster',
+        source: 'landcover',
+        paint: { 'raster-opacity': opacity }
+      }, firstLayerId);
+
+      landCoverYear = year;
+    }
+
+    function setLandCoverOpacity(val) {
+      document.getElementById('opacity-landcover-val').textContent = val + '%';
+      if (map.getLayer('landcover-layer')) {
+        map.setPaintProperty('landcover-layer', 'raster-opacity', parseInt(val) / 100);
       }
     }
 
