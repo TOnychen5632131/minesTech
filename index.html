@@ -277,6 +277,28 @@
     }
     .saved-plot-btn:hover { background: #eee; }
     .saved-plot-note { font-size: 11px; color: #777; padding: 0 0 8px 20px; line-height: 1.4; }
+    .basemap-settings {
+      margin-top: 8px;
+      padding-left: 28px;
+    }
+    .basemap-help {
+      margin-top: 6px;
+      font-size: 10px;
+      color: #777;
+      line-height: 1.45;
+    }
+    .basemap-inline-btn {
+      margin-top: 6px;
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #1a1a2e;
+      color: #fff;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .basemap-inline-btn:hover { background: #141424; }
 
     /* AMW Period selector */
     .amw-mode-toggle {
@@ -547,6 +569,26 @@
         </label>
         <div class="inspect-note" id="inspect-status" style="font-size:10px;color:#999;padding-left:28px;">Click map to inspect</div>
         <label class="layer-toggle" style="margin-top:6px;">
+          <span style="font-size:14px;">🛰</span>
+          <span>Basemap Source</span>
+        </label>
+        <div class="basemap-settings">
+          <select id="basemap-selector" class="form-input" onchange="onBasemapChange(this.value)" style="margin-top:0;">
+            <option value="esri">Esri World Imagery</option>
+            <option value="s2cloudless2024">Sentinel-2 Cloudless 2024 (Free)</option>
+            <option value="s2cloudless2023">Sentinel-2 Cloudless 2023 (Free)</option>
+            <option value="custom">Custom HD XYZ Tiles</option>
+          </select>
+          <div id="custom-basemap-controls" style="display:none;">
+            <input id="custom-basemap-url" class="form-input" type="text" placeholder="https://.../{z}/{x}/{y}.png">
+            <input id="custom-basemap-attribution" class="form-input" type="text" placeholder="Attribution (optional)">
+            <button class="basemap-inline-btn" onclick="applyCustomBasemap()">Apply Custom Basemap</button>
+          </div>
+          <div class="basemap-help" id="basemap-source-note">
+            Default uses Esri World Imagery. For Maxar, Airbus, or other licensed high-resolution imagery, paste the provider XYZ tile URL here.
+          </div>
+        </div>
+        <label class="layer-toggle" style="margin-top:6px;">
           <input type="checkbox" id="toggle-ruler" onchange="toggleRuler()">
           <span style="font-size:14px;">📏</span>
           <span>Measure Distance</span>
@@ -755,6 +797,28 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
     window._savedPlots = [];
     window._savedPlotMarkers = [];
     let _usePlotsServerAPI = true;
+    const BASEMAP_STORAGE_KEY = 'minestech-basemap-settings-v1';
+    const BASEMAP_PRESETS = {
+      esri: {
+        label: 'Esri World Imagery',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        attribution: ''
+      },
+      s2cloudless2024: {
+        label: 'Sentinel-2 Cloudless 2024',
+        tiles: ['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/g/{z}/{y}/{x}.jpg'],
+        tileSize: 256,
+        attribution: 'Contains modified Copernicus Sentinel data'
+      },
+      s2cloudless2023: {
+        label: 'Sentinel-2 Cloudless 2023',
+        tiles: ['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/{z}/{y}/{x}.jpg'],
+        tileSize: 256,
+        attribution: 'Contains modified Copernicus Sentinel data'
+      }
+    };
+    let currentBasemap = loadBasemapSettings();
 
     const INSPECT_RULE_LABELS = {
       ndvi_rule: 'NDVI',
@@ -788,6 +852,160 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
       );
 
       return [...new Set(candidates)];
+    }
+
+    function loadBasemapSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(BASEMAP_STORAGE_KEY) || '{}');
+        if (saved && saved.type === 'custom' && saved.url) {
+          return {
+            type: 'custom',
+            url: saved.url,
+            attribution: saved.attribution || ''
+          };
+        }
+        if (saved && saved.type && BASEMAP_PRESETS[saved.type]) {
+          return { type: saved.type };
+        }
+      } catch (err) {
+        console.warn('Failed to load basemap settings:', err);
+      }
+      return { type: 'esri' };
+    }
+
+    function saveBasemapSettings() {
+      try {
+        localStorage.setItem(BASEMAP_STORAGE_KEY, JSON.stringify(currentBasemap));
+      } catch (err) {
+        console.warn('Failed to save basemap settings:', err);
+      }
+    }
+
+    function getBasemapSourceConfig(basemap) {
+      if (BASEMAP_PRESETS[basemap.type]) {
+        const preset = BASEMAP_PRESETS[basemap.type];
+        return {
+          type: 'raster',
+          tiles: [...preset.tiles],
+          tileSize: preset.tileSize,
+          attribution: preset.attribution
+        };
+      }
+
+      if (basemap.type === 'custom' && basemap.url) {
+        return {
+          type: 'raster',
+          tiles: [basemap.url],
+          tileSize: 256,
+          attribution: basemap.attribution || ''
+        };
+      }
+
+      return {
+        type: 'raster',
+        tiles: [...BASEMAP_PRESETS.esri.tiles],
+        tileSize: BASEMAP_PRESETS.esri.tileSize,
+        attribution: BASEMAP_PRESETS.esri.attribution
+      };
+    }
+
+    function updateBasemapUI() {
+      const selector = document.getElementById('basemap-selector');
+      const customControls = document.getElementById('custom-basemap-controls');
+      const urlInput = document.getElementById('custom-basemap-url');
+      const attributionInput = document.getElementById('custom-basemap-attribution');
+      const note = document.getElementById('basemap-source-note');
+
+      if (!selector || !customControls) return;
+
+      selector.value = currentBasemap.type === 'custom' ? 'custom' : (BASEMAP_PRESETS[currentBasemap.type] ? currentBasemap.type : 'esri');
+      customControls.style.display = selector.value === 'custom' ? 'block' : 'none';
+      if (urlInput) urlInput.value = currentBasemap.url || '';
+      if (attributionInput) attributionInput.value = currentBasemap.attribution || '';
+
+      if (note) {
+        if (selector.value === 'custom') {
+          note.textContent = 'Paste a licensed XYZ/TMS-compatible tile URL. This is where you can plug in commercial high-resolution imagery.';
+        } else if (selector.value.startsWith('s2cloudless')) {
+          note.textContent = 'Free Sentinel-2 cloudless mosaic. Useful for comparison, but it is much lower resolution than commercial imagery.';
+        } else {
+          note.textContent = 'Default uses Esri World Imagery. Switch to a free Sentinel-2 mosaic or your own licensed high-resolution tile service.';
+        }
+      }
+    }
+
+    function replaceBasemapLayer(targetMap, basemap) {
+      if (!targetMap || !targetMap.isStyleLoaded()) return;
+
+      if (targetMap.getLayer('satellite-layer')) targetMap.removeLayer('satellite-layer');
+      if (targetMap.getSource('satellite')) targetMap.removeSource('satellite');
+
+      targetMap.addSource('satellite', getBasemapSourceConfig(basemap));
+      const beforeId = targetMap.getStyle().layers[0]?.id;
+      targetMap.addLayer({
+        id: 'satellite-layer',
+        type: 'raster',
+        source: 'satellite',
+        minzoom: 0,
+        maxzoom: 19
+      }, beforeId);
+    }
+
+    function refreshCompareBasemap() {
+      if (typeof compareMap !== 'undefined' && compareMap && compareMap.isStyleLoaded()) {
+        replaceBasemapLayer(compareMap, currentBasemap);
+      }
+    }
+
+    function setBasemap(basemap) {
+      currentBasemap = basemap;
+      saveBasemapSettings();
+      updateBasemapUI();
+      replaceBasemapLayer(map, currentBasemap);
+      refreshCompareBasemap();
+      if (typeof applyTerrainViewMode === 'function') applyTerrainViewMode();
+    }
+
+    function onBasemapChange(value) {
+      if (value === 'custom') {
+        currentBasemap = {
+          type: 'custom',
+          url: currentBasemap.type === 'custom' ? (currentBasemap.url || '') : '',
+          attribution: currentBasemap.type === 'custom' ? (currentBasemap.attribution || '') : ''
+        };
+        saveBasemapSettings();
+        updateBasemapUI();
+
+        if (currentBasemap.url) {
+          replaceBasemapLayer(map, currentBasemap);
+          refreshCompareBasemap();
+        }
+        return;
+      }
+
+      setBasemap({ type: BASEMAP_PRESETS[value] ? value : 'esri' });
+    }
+
+    function applyCustomBasemap() {
+      const urlInput = document.getElementById('custom-basemap-url');
+      const attributionInput = document.getElementById('custom-basemap-attribution');
+      const status = document.getElementById('inspect-status');
+      const url = (urlInput?.value || '').trim();
+      const attribution = (attributionInput?.value || '').trim();
+
+      if (!url || !url.includes('{z}') || !url.includes('{x}') || !url.includes('{y}')) {
+        if (status) {
+          status.textContent = 'Custom basemap needs an XYZ tile URL with {z}/{x}/{y}.';
+          status.style.color = '#af2a2a';
+        }
+        return;
+      }
+
+      setBasemap({ type: 'custom', url, attribution });
+      if (status) {
+        status.textContent = 'Custom basemap applied.';
+        status.style.color = '#146c2e';
+      }
     }
 
     async function fetchDetection(year) {
@@ -991,12 +1209,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
         version: 8,
         sources: {
           'satellite': {
-            type: 'raster',
-            tiles: [
-              'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-            ],
-            tileSize: 256,
-            attribution: ''
+            ...getBasemapSourceConfig(currentBasemap)
           },
           'terrain-dem': {
             type: 'raster-dem',
@@ -1045,6 +1258,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
     map.on('moveend', updateHash);
 
     map.on('load', () => {
+      updateBasemapUI();
       // Restore state from URL hash
       if (_initHash) {
         document.getElementById('year-slider').value = _initHash.year;
@@ -3204,9 +3418,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
           version: 8,
           sources: {
             'satellite': {
-              type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-              tileSize: 256
+              ...getBasemapSourceConfig(currentBasemap)
             }
           },
           layers: [{ id: 'satellite-layer', type: 'raster', source: 'satellite', minzoom: 0, maxzoom: 19 }]
