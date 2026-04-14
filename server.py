@@ -664,8 +664,8 @@ def get_amw_period(period):
 def get_landcover(year):
     """Return land use/land cover classification tiles.
 
-    Uses ESA WorldCover (10m) for 2020/2021, and Dynamic World for other years.
-    Classes are color-coded: forest=green, mining/bare=brown, water=blue, etc.
+    Primary: MapBiomas Pan-Amazonia (30m, specific Mining class, 1985-2022)
+    Fallback: Google Dynamic World (10m, near-real-time, 2015+)
     """
     cache_key = f'landcover_{year}'
     if cache_key in tile_cache:
@@ -673,87 +673,130 @@ def get_landcover(year):
         if time.time() - cached['time'] < CACHE_TTL:
             return jsonify({'url': cached['url'], 'year': year, 'source': cached['source'], 'legend': cached['legend']})
 
+    # MapBiomas legend (shared across attempts)
+    mapbiomas_legend = [
+        {'color': '#1f8d49', 'label': 'Forest'},
+        {'color': '#7dc975', 'label': 'Savanna'},
+        {'color': '#04381d', 'label': 'Mangrove'},
+        {'color': '#519799', 'label': 'Flooded Forest'},
+        {'color': '#d6bc74', 'label': 'Grassland'},
+        {'color': '#edde8e', 'label': 'Pasture'},
+        {'color': '#e6b600', 'label': 'Agriculture'},
+        {'color': '#ffefc3', 'label': 'Ag/Pasture Mosaic'},
+        {'color': '#d4271e', 'label': 'Urban'},
+        {'color': '#9c0027', 'label': '⛏ Mining', 'highlight': True},
+        {'color': '#af2a2a', 'label': 'Other Non-Veg'},
+        {'color': '#0000FF', 'label': 'Water'},
+    ]
+
     try:
-        # ESA WorldCover: available for 2020 and 2021 (10m, very accurate)
-        if year in (2020, 2021):
-            collection_id = 'ESA/WorldCover/v100' if year == 2020 else 'ESA/WorldCover/v200'
-            wc = ee.ImageCollection(collection_id).first().clip(get_suriname())
-            # ESA WorldCover has built-in classes: 10=Trees, 20=Shrub, 30=Grass,
-            # 40=Cropland, 50=Built-up, 60=Bare/sparse(mining!), 70=Snow, 80=Water,
-            # 90=Wetland, 95=Mangrove, 100=Moss
-            vis = wc.getMapId({
-                'min': 10, 'max': 100,
-                'palette': [
-                    '006400',  # 10 Trees - dark green
-                    'ffbb22',  # 20 Shrubland - orange
-                    'ffff4c',  # 30 Grassland - yellow
-                    'f096ff',  # 40 Cropland - pink
-                    'fa0000',  # 50 Built-up - red
-                    'b4b4b4',  # 60 Bare/sparse (MINING) - grey
-                    'f0f0f0',  # 70 Snow/ice - white
-                    '0064c8',  # 80 Water - blue
-                    '0096a0',  # 90 Herbaceous wetland - teal
-                    '00cf75',  # 95 Mangrove - sea green
-                    'fae6a0',  # 100 Moss/lichen - light yellow
+        # Try MapBiomas Pan-Amazonia (best for mining detection)
+        # Collection 5 covers 1985-2022 with specific Mining class (30)
+        mb_assets = [
+            'projects/mapbiomas-raisg/public/collection5/mapbiomas_raisg_panamazonia_collection5_integration_v1',
+            'projects/mapbiomas-public/assets/panamazonia/collection5/mapbiomas_panamazonia_collection5_integration_v1',
+        ]
+
+        mb_year = min(year, 2022)  # MapBiomas max year is 2022
+        band_name = f'classification_{mb_year}'
+
+        for asset_path in mb_assets:
+            try:
+                mb = ee.Image(asset_path)
+                classified = mb.select(band_name).clip(get_suriname())
+
+                # MapBiomas class values and their colors
+                class_from = [1, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 23, 24, 25, 29, 30, 31, 33, 34, 36, 39, 41, 46, 47, 48, 49, 50, 62]
+                class_to   = list(range(len(class_from)))
+                class_colors = [
+                    '1f8d49',  # 1 Forest
+                    '1f8d49',  # 3 Forest Formation
+                    '7dc975',  # 4 Savanna Formation
+                    '04381d',  # 5 Mangrove
+                    '519799',  # 6 Flooded Forest
+                    '7a5900',  # 9 Forest Plantation
+                    'd6bc74',  # 10 Non Forest Natural
+                    '519799',  # 11 Wetland
+                    'd6bc74',  # 12 Grassland
+                    'bdb76b',  # 13 Other Non Forest Natural
+                    'e6b600',  # 14 Farming
+                    'edde8e',  # 15 Pasture
+                    'e6b600',  # 18 Agriculture
+                    'c27ba0',  # 19 Temporary Crops
+                    'db7093',  # 20 Sugar Cane
+                    'ffefc3',  # 21 Mosaic Ag/Pasture
+                    'dd7e6b',  # 23 Beach/Sand
+                    'd4271e',  # 24 Urban
+                    'af2a2a',  # 25 Other Non-Veg
+                    '808080',  # 29 Rocky Outcrop
+                    '9c0027',  # 30 MINING ← key class!
+                    '091077',  # 31 Aquaculture
+                    '0000FF',  # 33 Water
+                    'ffffff',  # 34 Glacier
+                    'e6b600',  # 36 Perennial Crop
+                    'c27ba0',  # 39 Soybean
+                    'c27ba0',  # 41 Other Temp Crops
+                    '7a5900',  # 46 Coffee
+                    'f5deb3',  # 47 Citrus
+                    'e6b600',  # 48 Other Perennial
+                    '1f8d49',  # 49 Wooded Restinga
+                    '7dc975',  # 50 Herbaceous Restinga
+                    'c27ba0',  # 62 Cotton
                 ]
-            })
-            legend = [
-                {'color': '#006400', 'label': 'Tree Cover'},
-                {'color': '#ffbb22', 'label': 'Shrubland'},
-                {'color': '#ffff4c', 'label': 'Grassland'},
-                {'color': '#f096ff', 'label': 'Cropland'},
-                {'color': '#fa0000', 'label': 'Built-up'},
-                {'color': '#b4b4b4', 'label': 'Bare / Mining'},
-                {'color': '#0064c8', 'label': 'Water'},
-                {'color': '#0096a0', 'label': 'Wetland'},
-                {'color': '#00cf75', 'label': 'Mangrove'},
-            ]
-            source = 'esa_worldcover'
-        else:
-            # Dynamic World (Google): near-real-time, 10m, Sentinel-2 based
-            start = f'{year}-01-01'
-            end = f'{year}-12-31'
-            dw = (ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')
-                  .filterDate(start, end)
-                  .filterBounds(get_suriname())
-                  .select('label')
-                  .mode()
-                  .clip(get_suriname()))
-            # Dynamic World classes: 0=water, 1=trees, 2=grass, 3=flooded_veg,
-            # 4=crops, 5=shrub, 6=built, 7=bare(mining!), 8=snow_ice
-            vis = dw.getMapId({
-                'min': 0, 'max': 8,
-                'palette': [
-                    '419bdf',  # 0 Water - blue
-                    '397d49',  # 1 Trees - green
-                    '88b053',  # 2 Grass - light green
-                    '7a87c6',  # 3 Flooded vegetation - purple
-                    'e49635',  # 4 Crops - orange
-                    'dfc35a',  # 5 Shrub/scrub - yellow
-                    'c4281b',  # 6 Built area - red
-                    'a59b8f',  # 7 Bare ground (MINING) - brown/grey
-                    'b39fe1',  # 8 Snow/ice - light purple
-                ]
-            })
-            legend = [
-                {'color': '#419bdf', 'label': 'Water'},
-                {'color': '#397d49', 'label': 'Trees'},
-                {'color': '#88b053', 'label': 'Grass'},
-                {'color': '#7a87c6', 'label': 'Flooded Vegetation'},
-                {'color': '#e49635', 'label': 'Crops'},
-                {'color': '#dfc35a', 'label': 'Shrub/Scrub'},
-                {'color': '#c4281b', 'label': 'Built Area'},
-                {'color': '#a59b8f', 'label': 'Bare Ground / Mining'},
-                {'color': '#b39fe1', 'label': 'Snow/Ice'},
-            ]
-            source = 'dynamic_world'
+
+                remapped = classified.remap(class_from, class_to)
+                vis = remapped.getMapId({
+                    'min': 0,
+                    'max': len(class_from) - 1,
+                    'palette': class_colors
+                })
+
+                tile_url = vis['tile_fetcher'].url_format
+                tile_cache[cache_key] = {
+                    'url': tile_url, 'time': time.time(),
+                    'source': 'mapbiomas', 'legend': mapbiomas_legend
+                }
+                actual_year = mb_year if year > 2022 else year
+                return jsonify({
+                    'url': tile_url, 'year': actual_year,
+                    'source': 'mapbiomas', 'legend': mapbiomas_legend,
+                    'note': f'MapBiomas Pan-Amazonia Collection 5 · {actual_year}' + (' (latest available)' if year > 2022 else '')
+                })
+            except Exception:
+                continue
+
+        # Fallback: Google Dynamic World (10m, 2015+)
+        start = f'{year}-01-01'
+        end = f'{year}-12-31'
+        dw = (ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')
+              .filterDate(start, end)
+              .filterBounds(get_suriname())
+              .select('label')
+              .mode()
+              .clip(get_suriname()))
+
+        dw_legend = [
+            {'color': '#419bdf', 'label': 'Water'},
+            {'color': '#397d49', 'label': 'Trees'},
+            {'color': '#88b053', 'label': 'Grass'},
+            {'color': '#7a87c6', 'label': 'Flooded Veg'},
+            {'color': '#e49635', 'label': 'Crops'},
+            {'color': '#dfc35a', 'label': 'Shrub/Scrub'},
+            {'color': '#c4281b', 'label': 'Built Area'},
+            {'color': '#a59b8f', 'label': 'Bare / Mining'},
+        ]
+
+        vis = dw.getMapId({
+            'min': 0, 'max': 8,
+            'palette': ['419bdf', '397d49', '88b053', '7a87c6', 'e49635', 'dfc35a', 'c4281b', 'a59b8f', 'b39fe1']
+        })
 
         tile_url = vis['tile_fetcher'].url_format
         tile_cache[cache_key] = {
             'url': tile_url, 'time': time.time(),
-            'source': source, 'legend': legend
+            'source': 'dynamic_world', 'legend': dw_legend
         }
-        return jsonify({'url': tile_url, 'year': year, 'source': source, 'legend': legend})
+        return jsonify({'url': tile_url, 'year': year, 'source': 'dynamic_world', 'legend': dw_legend})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
