@@ -691,13 +691,18 @@ def get_landcover(year):
 
     try:
         # Try MapBiomas Pan-Amazonia (best for mining detection)
-        # Collection 5 covers 1985-2022 with specific Mining class (30)
+        # Various collection versions and asset paths
         mb_assets = [
+            # Pan-Amazonia (RAISG) - covers Suriname
             'projects/mapbiomas-raisg/public/collection5/mapbiomas_raisg_panamazonia_collection5_integration_v1',
+            'projects/mapbiomas-raisg/public/collection4/mapbiomas_raisg_panamazonia_collection4_integration_v1',
             'projects/mapbiomas-public/assets/panamazonia/collection5/mapbiomas_panamazonia_collection5_integration_v1',
+            'projects/MapBiomas_Pamaz/public/collection3/mapbiomas_panamazonia_collection3_integration_v1',
+            # Try without version suffix
+            'projects/mapbiomas-raisg/public/collection5/mapbiomas_raisg_panamazonia_collection5_integration',
         ]
 
-        mb_year = min(year, 2022)  # MapBiomas max year is 2022
+        mb_year = min(year, 2022)  # MapBiomas max year
         band_name = f'classification_{mb_year}'
 
         for asset_path in mb_assets:
@@ -765,9 +770,19 @@ def get_landcover(year):
             except Exception:
                 continue
 
-        # Fallback: Google Dynamic World (10m, 2015+)
-        start = f'{year}-01-01'
-        end = f'{year}-12-31'
+        # Fallback: Google Dynamic World (10m, 2015-present, near-real-time)
+        # Use most recent 6 months if year is current/future
+        import datetime as dt
+        now = dt.datetime.now()
+        if year >= now.year:
+            end = now.strftime('%Y-%m-%d')
+            start = (now - dt.timedelta(days=180)).strftime('%Y-%m-%d')
+            display_year = f'{now.year} (latest)'
+        else:
+            start = f'{year}-01-01'
+            end = f'{year}-12-31'
+            display_year = str(year)
+
         dw = (ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1')
               .filterDate(start, end)
               .filterBounds(get_suriname())
@@ -783,7 +798,7 @@ def get_landcover(year):
             {'color': '#e49635', 'label': 'Crops'},
             {'color': '#dfc35a', 'label': 'Shrub/Scrub'},
             {'color': '#c4281b', 'label': 'Built Area'},
-            {'color': '#a59b8f', 'label': 'Bare / Mining'},
+            {'color': '#a59b8f', 'label': 'Bare / Mining', 'highlight': True},
         ]
 
         vis = dw.getMapId({
@@ -796,7 +811,11 @@ def get_landcover(year):
             'url': tile_url, 'time': time.time(),
             'source': 'dynamic_world', 'legend': dw_legend
         }
-        return jsonify({'url': tile_url, 'year': year, 'source': 'dynamic_world', 'legend': dw_legend})
+        return jsonify({
+            'url': tile_url, 'year': year,
+            'source': 'dynamic_world', 'legend': dw_legend,
+            'note': f'Google Dynamic World 10m · {display_year}'
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

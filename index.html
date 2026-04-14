@@ -477,6 +477,10 @@
           <span>Land Classification</span>
         </label>
         <div id="landcover-controls" style="display:none;padding-left:28px;">
+          <div style="display:flex;gap:4px;margin-bottom:4px;">
+            <button class="amw-mode-btn" onclick="loadLandCover(2026)" style="flex:1;font-size:10px;padding:2px 4px;">Latest</button>
+            <button class="amw-mode-btn" onclick="loadLandCover(currentDetectionYear)" style="flex:1;font-size:10px;padding:2px 4px;">Match Year</button>
+          </div>
           <div class="opacity-control"><span style="font-size:10px;">Opacity</span><input type="range" id="opacity-landcover" min="0" max="100" value="75" oninput="setLandCoverOpacity(this.value)" style="flex:1;"><span id="opacity-landcover-val" style="min-width:28px;text-align:right;font-size:10px;">75%</span></div>
           <div id="landcover-legend" style="font-size:10px;margin-top:4px;"></div>
           <div id="landcover-status" style="font-size:10px;color:#888;margin-top:2px;"></div>
