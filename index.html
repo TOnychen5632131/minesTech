@@ -986,24 +986,21 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
     let amwPageStart = 7;  // show last 3 periods by default
     const AMW_PAGE_SIZE = 3;
 
-    // Color: position-based within visible window — oldest=light yellow, newest=red
-    function amwColorForIndex(i, total) {
-      if (total <= 1) return { fill: '#EF5350', outline: '#C62828' };
-      const t = i / (total - 1); // 0..1
-      if (t < 0.5) {
-        // light yellow → yellow
-        const r = Math.round(255);
-        const g = Math.round(249 - (249-213)*t*2);
-        const b = Math.round(196 - (196-79)*t*2);
-        return { fill: `rgb(${r},${g},${b})`, outline: `rgb(${Math.round(r*0.7)},${Math.round(g*0.6)},0)` };
-      } else {
-        // yellow → red
-        const t2 = (t-0.5)*2;
-        const r = Math.round(255 - (255-239)*t2);
-        const g = Math.round(213 - (213-83)*t2);
-        const b = Math.round(79 - (79-80)*t2);
-        return { fill: `rgb(${r},${g},${b})`, outline: `rgb(${Math.round(r*0.7)},${Math.round(g*0.4)},${Math.round(b*0.3)})` };
-      }
+    // Color: fixed per period — only 2025Q4 is red, rest is yellow/light yellow
+    const AMW_FIXED_COLORS = {
+      '2018':   { fill: '#FFF9C4', outline: '#F9A825' },  // lightest yellow
+      '2019':   { fill: '#FFF59D', outline: '#F9A825' },
+      '2020':   { fill: '#FFF176', outline: '#F9A825' },
+      '2021':   { fill: '#FFEE58', outline: '#F57F17' },
+      '2022':   { fill: '#FFEB3B', outline: '#F57F17' },
+      '2023':   { fill: '#FFD54F', outline: '#F57F17' },
+      '2024':   { fill: '#FFCA28', outline: '#EF6C00' },
+      '2025Q2': { fill: '#FFB300', outline: '#E65100' },
+      '2025Q3': { fill: '#FFA000', outline: '#E65100' },
+      '2025Q4': { fill: '#EF5350', outline: '#C62828' }   // red — most recent
+    };
+    function amwColorForPeriod(period) {
+      return AMW_FIXED_COLORS[period] || { fill: '#FFD54F', outline: '#F57F17' };
     }
 
     const amwDataCache = {};
@@ -1145,10 +1142,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
         });
       }
 
-      // Compute colors: in cumulative, gradient across all active periods
-      const colorTotal = activePeriods.length;
-
-      // Update all layer visibility and colors
+      // Update all layer visibility and colors (fixed per period)
       AMW_ALL_PERIODS.forEach((period, i) => {
         const ids = amwLayerIds(period);
         if (!amwLayersCreated.has(period)) return;
@@ -1159,8 +1153,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
         map.setLayoutProperty(ids.outline, 'visibility', v);
 
         if (isActive) {
-          const activeIdx = activePeriods.indexOf(period);
-          const colors = amwColorForIndex(activeIdx, colorTotal);
+          const colors = amwColorForPeriod(period);
           const opacity = parseInt(document.getElementById('opacity-amw').value) / 100;
           map.setPaintProperty(ids.fill, 'fill-color', colors.fill);
           map.setPaintProperty(ids.fill, 'fill-opacity', opacity * 0.6);
