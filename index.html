@@ -1569,7 +1569,7 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
       hideBasemapToast();
     }
 
-    function applyBasemapTiles(tileUrl, year) {
+    function applyBasemapTiles(tileUrl, year, forceFullOpacity) {
       // Remove old historical basemap layer/source
       if (map.getLayer('historical-basemap-layer')) map.removeLayer('historical-basemap-layer');
       if (map.getSource('historical-basemap')) map.removeSource('historical-basemap');
@@ -1580,13 +1580,16 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
         tileSize: 256
       });
 
+      // In timelapse satellite mode, use full opacity so tiles don't blend with base map
+      const opacity = forceFullOpacity ? 1 : parseInt(document.getElementById('opacity-basemap').value) / 100;
+
       // Insert just above the static satellite layer (below all other layers)
       const firstLayerId = map.getStyle().layers[1]?.id || undefined;
       map.addLayer({
         id: 'historical-basemap-layer',
         type: 'raster',
         source: 'historical-basemap',
-        paint: { 'raster-opacity': parseInt(document.getElementById('opacity-basemap').value) / 100 }
+        paint: { 'raster-opacity': opacity }
       }, firstLayerId);
 
       basemapYear = year;
@@ -2781,14 +2784,8 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
           document.getElementById('toggle-historical-basemap').checked = true;
           const opCtrl = document.getElementById('basemap-opacity-control');
           if (opCtrl) opCtrl.style.display = '';
-          // Set full opacity for satellite timelapse
-          if (map.getLayer('historical-basemap-layer')) {
-            map.setPaintProperty('historical-basemap-layer', 'raster-opacity', 1);
-          }
           if (basemapCache[yr]) {
-            applyBasemapTiles(basemapCache[yr], yr);
-            // Force full opacity on the new layer too
-            map.setPaintProperty('historical-basemap-layer', 'raster-opacity', 1);
+            applyBasemapTiles(basemapCache[yr], yr, true);
           } else {
             await loadHistoricalBasemap(yr);
           }
