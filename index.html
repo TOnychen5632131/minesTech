@@ -316,6 +316,61 @@
       text-align: center; min-height: 16px;
     }
 
+    /* Time-lapse panel */
+    .timelapse-panel {
+      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(26,26,46,0.92); color: #fff; border-radius: 12px;
+      padding: 12px 20px; z-index: 20; display: none;
+      min-width: 340px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      backdrop-filter: blur(8px);
+    }
+    .timelapse-panel.show { display: block; }
+    .tl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .tl-year { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+    .tl-close { background: none; border: none; color: #888; font-size: 18px; cursor: pointer; }
+    .tl-close:hover { color: #fff; }
+    .tl-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .tl-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none;
+      background: #e6a817; color: #1a1a2e; font-size: 16px; font-weight: 700;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .tl-btn:hover { background: #ffc107; }
+    .tl-progress { flex: 1; position: relative; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; cursor: pointer; }
+    .tl-progress-fill { height: 100%; background: #e6a817; border-radius: 3px; transition: width 0.3s; }
+    .tl-labels { display: flex; justify-content: space-between; font-size: 9px; color: #888; margin-top: 2px; }
+    .tl-speed { font-size: 10px; color: #aaa; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+    .tl-speed:hover { background: rgba(255,255,255,0.1); }
+    .tl-mode-toggle { display: flex; gap: 0; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); }
+    .tl-mode-btn { padding: 3px 8px; font-size: 10px; border: none; cursor: pointer; background: transparent; color: #888; }
+    .tl-mode-btn.active { background: rgba(230,168,23,0.3); color: #e6a817; }
+
+    /* Draw box overlay */
+    .draw-hint {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(26,26,46,0.85); color: #fff; padding: 14px 24px;
+      border-radius: 10px; font-size: 14px; z-index: 20; text-align: center;
+      pointer-events: none; display: none;
+    }
+    .draw-hint.show { display: block; }
+
+    /* Swipe compare */
+    .swipe-bar {
+      position: absolute; top: 0; bottom: 0; width: 4px; background: #fff;
+      z-index: 15; cursor: ew-resize; box-shadow: 0 0 8px rgba(0,0,0,0.5);
+    }
+    .swipe-bar::after {
+      content: '◀ ▶'; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: #fff; color: #333; padding: 6px 4px; border-radius: 6px;
+      font-size: 10px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .swipe-label {
+      position: absolute; top: 12px; z-index: 16;
+      background: rgba(26,26,46,0.85); color: #fff; padding: 4px 12px;
+      border-radius: 6px; font-size: 13px; font-weight: 700;
+    }
+
     /* Zoom-scaled markers */
     .zoom-marker {
       transition: transform 0.15s ease;
@@ -363,6 +418,7 @@
 </head>
 <body>
   <div id="map"></div>
+  <div id="map-compare" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;z-index:1;"></div>
 
   <button class="sidebar-toggle" onclick="document.querySelector('.sidebar').classList.add('open')">☰</button>
   <div class="sidebar">
@@ -473,6 +529,10 @@
           <span>Measure Area</span>
         </label>
         <div class="ruler-result" id="area-result"></div>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button onclick="startTimelapse()" style="flex:1;padding:6px;background:#1a1a2e;color:#e6a817;border:1px solid #e6a817;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">🎬 Time-lapse</button>
+          <button onclick="startSwipe()" style="flex:1;padding:6px;background:#1a1a2e;color:#2196F3;border:1px solid #2196F3;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">↔ Swipe Compare</button>
+        </div>
       </div>
     </div>
 
@@ -592,6 +652,35 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
 
   <div class="loading-overlay" id="loading">Loading tiles...</div>
   <div class="basemap-toast" id="basemap-toast"><span class="spinner"></span><span id="basemap-toast-text">Loading satellite imagery...</span></div>
+
+  <div class="draw-hint" id="draw-hint">Click and drag on the map to draw the area for time-lapse</div>
+
+  <div class="timelapse-panel" id="timelapse-panel">
+    <div class="tl-header">
+      <div class="tl-year" id="tl-year">2018</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="tl-mode-toggle">
+          <button class="tl-mode-btn active" id="tl-mode-detect" onclick="setTLMode('detect')">Detection</button>
+          <button class="tl-mode-btn" id="tl-mode-sat" onclick="setTLMode('satellite')">Satellite</button>
+        </div>
+        <span class="tl-speed" id="tl-speed" onclick="cycleTLSpeed()">1x</span>
+        <button class="tl-close" onclick="stopTimelapse()">✕</button>
+      </div>
+    </div>
+    <div class="tl-controls">
+      <button class="tl-btn" id="tl-play" onclick="toggleTLPlay()">▶</button>
+      <div class="tl-progress" id="tl-progress" onclick="seekTL(event)">
+        <div class="tl-progress-fill" id="tl-progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="tl-labels" id="tl-labels"></div>
+  </div>
+
+  <div class="swipe-bar" id="swipe-bar" style="display:none;left:50%;">
+    <button onclick="stopSwipe()" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ccc;border-radius:50%;width:22px;height:22px;font-size:12px;cursor:pointer;color:#666;line-height:1;">✕</button>
+  </div>
+  <div class="swipe-label" id="swipe-label-left" style="display:none;left:12px;"></div>
+  <div class="swipe-label" id="swipe-label-right" style="display:none;right:12px;"></div>
 
   <div class="info-badge">
     Powered by minesTech
@@ -2563,6 +2652,383 @@ SPDD-001  Bob  672975  569515  -23.1  162.0" style="width:100%;padding:5px 8px;b
         area -= projected[j].x * projected[i].y;
       }
       return Math.abs(area) / 2;
+    }
+
+    // ── Time-lapse Animation ──
+
+    const TL_STEPS = ['2018','2019','2020','2021','2022','2023','2024','2025Q2','2025Q3','2025Q4'];
+    let tlPlaying = false;
+    let tlIndex = 0;
+    let tlTimer = null;
+    let tlSpeed = 1; // seconds per frame
+    let tlMode = 'detect'; // 'detect' or 'satellite'
+    let tlDrawing = false;
+    let tlDrawStart = null;
+    let tlBoxLayer = false;
+
+    function startTimelapse() {
+      // Enter draw mode
+      tlDrawing = true;
+      document.getElementById('draw-hint').classList.add('show');
+      map.getCanvas().style.cursor = 'crosshair';
+
+      // Temporary mouse handlers for drawing box
+      map.once('mousedown', onTLDrawStart);
+    }
+
+    function onTLDrawStart(e) {
+      if (!tlDrawing) return;
+      tlDrawStart = e.lngLat;
+      map.on('mousemove', onTLDrawMove);
+      map.once('mouseup', onTLDrawEnd);
+    }
+
+    function onTLDrawMove(e) {
+      if (!tlDrawStart) return;
+      drawTLBox(tlDrawStart, e.lngLat);
+    }
+
+    function onTLDrawEnd(e) {
+      if (!tlDrawStart) return;
+      map.off('mousemove', onTLDrawMove);
+      tlDrawing = false;
+      document.getElementById('draw-hint').classList.remove('show');
+
+      const bounds = [
+        [Math.min(tlDrawStart.lng, e.lngLat.lng), Math.min(tlDrawStart.lat, e.lngLat.lat)],
+        [Math.max(tlDrawStart.lng, e.lngLat.lng), Math.max(tlDrawStart.lat, e.lngLat.lat)]
+      ];
+      tlDrawStart = null;
+
+      // Zoom to box
+      map.fitBounds(bounds, { padding: 40, duration: 1000 });
+
+      // Show timelapse panel
+      setTimeout(() => initTimelapse(), 1100);
+    }
+
+    function drawTLBox(start, end) {
+      const coords = [
+        [start.lng, start.lat], [end.lng, start.lat],
+        [end.lng, end.lat], [start.lng, end.lat], [start.lng, start.lat]
+      ];
+      const data = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } };
+
+      if (map.getSource('tl-box')) {
+        map.getSource('tl-box').setData(data);
+      } else {
+        map.addSource('tl-box', { type: 'geojson', data });
+        map.addLayer({ id: 'tl-box-fill', type: 'fill', source: 'tl-box', paint: { 'fill-color': '#e6a817', 'fill-opacity': 0.15 } });
+        map.addLayer({ id: 'tl-box-line', type: 'line', source: 'tl-box', paint: { 'line-color': '#e6a817', 'line-width': 2, 'line-dasharray': [5, 3] } });
+        tlBoxLayer = true;
+      }
+    }
+
+    function initTimelapse() {
+      tlIndex = 0;
+      tlPlaying = false;
+      const panel = document.getElementById('timelapse-panel');
+      panel.classList.add('show');
+
+      // Build labels
+      const labels = document.getElementById('tl-labels');
+      labels.innerHTML = TL_STEPS.map(s => `<span>${AMW_LABELS[s] || s}</span>`).join('');
+
+      showTLFrame(0);
+    }
+
+    async function showTLFrame(index) {
+      tlIndex = index;
+      const period = TL_STEPS[index];
+      document.getElementById('tl-year').textContent = AMW_LABELS[period] || period;
+
+      // Update progress bar
+      const pct = (index / (TL_STEPS.length - 1)) * 100;
+      document.getElementById('tl-progress-fill').style.width = pct + '%';
+
+      if (tlMode === 'detect') {
+        // Show cumulative AMW up to this period: set amwPeriod and update
+        amwPeriod = period;
+        amwMode = 'cumulative';
+        document.getElementById('amw-mode-cum').classList.add('active');
+        document.getElementById('amw-mode-single').classList.remove('active');
+        // Update period buttons
+        const pidx = AMW_ALL_PERIODS.indexOf(period);
+        if (pidx < amwPageStart || pidx >= amwPageStart + AMW_PAGE_SIZE) {
+          amwPageStart = Math.max(0, Math.min(pidx, AMW_ALL_PERIODS.length - AMW_PAGE_SIZE));
+        }
+        renderAMWPeriodButtons();
+        await updateAMWLayerVisibility();
+      } else {
+        // Satellite mode: load historical basemap for the year
+        const yearMatch = period.match(/^(\d{4})/);
+        if (yearMatch) {
+          document.getElementById('toggle-historical-basemap').checked = true;
+          const opCtrl = document.getElementById('basemap-opacity-control');
+          if (opCtrl) opCtrl.style.display = '';
+          await loadHistoricalBasemap(parseInt(yearMatch[1]));
+        }
+      }
+    }
+
+    function toggleTLPlay() {
+      if (tlPlaying) {
+        pauseTL();
+      } else {
+        playTL();
+      }
+    }
+
+    function playTL() {
+      tlPlaying = true;
+      document.getElementById('tl-play').textContent = '⏸';
+
+      function step() {
+        if (!tlPlaying) return;
+        if (tlIndex >= TL_STEPS.length - 1) {
+          // Loop back
+          tlIndex = -1;
+        }
+        showTLFrame(tlIndex + 1);
+        tlTimer = setTimeout(step, tlSpeed * 1000);
+      }
+      step();
+    }
+
+    function pauseTL() {
+      tlPlaying = false;
+      document.getElementById('tl-play').textContent = '▶';
+      clearTimeout(tlTimer);
+    }
+
+    function stopTimelapse() {
+      pauseTL();
+      document.getElementById('timelapse-panel').classList.remove('show');
+      // Remove box
+      if (tlBoxLayer) {
+        if (map.getLayer('tl-box-fill')) map.removeLayer('tl-box-fill');
+        if (map.getLayer('tl-box-line')) map.removeLayer('tl-box-line');
+        if (map.getSource('tl-box')) map.removeSource('tl-box');
+        tlBoxLayer = false;
+      }
+      map.getCanvas().style.cursor = '';
+    }
+
+    function seekTL(e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      const idx = Math.round(pct * (TL_STEPS.length - 1));
+      showTLFrame(Math.max(0, Math.min(idx, TL_STEPS.length - 1)));
+    }
+
+    function cycleTLSpeed() {
+      const speeds = [1, 0.5, 2, 3];
+      const labels = ['1x', '2x', '0.5x', '0.3x'];
+      const cur = speeds.indexOf(tlSpeed);
+      const next = (cur + 1) % speeds.length;
+      tlSpeed = speeds[next];
+      document.getElementById('tl-speed').textContent = labels[next];
+    }
+
+    function setTLMode(mode) {
+      tlMode = mode;
+      document.getElementById('tl-mode-detect').classList.toggle('active', mode === 'detect');
+      document.getElementById('tl-mode-sat').classList.toggle('active', mode === 'satellite');
+      showTLFrame(tlIndex);
+    }
+
+    // ── Swipe Year Comparison (dual-map approach) ──
+
+    let swipeActive = false;
+    let swipePos = 0.5;
+    let swipeLeftYear = '2018';
+    let swipeRightYear = '2025Q4';
+    let swipeDragging = false;
+    let compareMap = null;
+    let _swipeSyncing = false;
+
+    function startSwipe() {
+      if (swipeActive) { stopSwipe(); return; }
+      swipeActive = true;
+      swipePos = 0.5;
+
+      // Prompt user to select years
+      const leftInput = prompt('Left side year (e.g. 2018, 2020, 2025Q2):', '2018');
+      if (!leftInput) { swipeActive = false; return; }
+      const rightInput = prompt('Right side year (e.g. 2024, 2025Q4):', '2025Q4');
+      if (!rightInput) { swipeActive = false; return; }
+
+      swipeLeftYear = leftInput.trim();
+      swipeRightYear = rightInput.trim();
+
+      // Show swipe UI
+      const bar = document.getElementById('swipe-bar');
+      const labelL = document.getElementById('swipe-label-left');
+      const labelR = document.getElementById('swipe-label-right');
+      bar.style.display = 'block';
+      labelL.style.display = 'block';
+      labelR.style.display = 'block';
+      labelL.textContent = AMW_LABELS[swipeLeftYear] || swipeLeftYear;
+      labelR.textContent = AMW_LABELS[swipeRightYear] || swipeRightYear;
+
+      // Show left year on main map, right year on compare map
+      loadSwipeLayers();
+
+      // Drag handlers
+      bar.addEventListener('mousedown', onSwipeStart);
+      bar.addEventListener('touchstart', onSwipeStart, { passive: false });
+      document.addEventListener('mousemove', onSwipeMove);
+      document.addEventListener('touchmove', onSwipeMove, { passive: false });
+      document.addEventListener('mouseup', onSwipeEnd);
+      document.addEventListener('touchend', onSwipeEnd);
+    }
+
+    async function loadSwipeLayers() {
+      // 1) Show left year on main map
+      const leftData = await ensureAMWPeriodLoaded(swipeLeftYear);
+      if (leftData) ensureAMWLayer(swipeLeftYear, leftData);
+
+      // Hide all AMW layers on main map, then show only left year
+      AMW_ALL_PERIODS.forEach(p => {
+        const ids = amwLayerIds(p);
+        if (amwLayersCreated.has(p)) {
+          map.setLayoutProperty(ids.fill, 'visibility', 'none');
+          map.setLayoutProperty(ids.outline, 'visibility', 'none');
+        }
+      });
+      const leftIds = amwLayerIds(swipeLeftYear);
+      if (amwLayersCreated.has(swipeLeftYear)) {
+        map.setLayoutProperty(leftIds.fill, 'visibility', 'visible');
+        map.setLayoutProperty(leftIds.outline, 'visibility', 'visible');
+        map.setPaintProperty(leftIds.fill, 'fill-color', '#FFF9C4');
+        map.setPaintProperty(leftIds.fill, 'fill-opacity', 0.6);
+        map.setPaintProperty(leftIds.outline, 'line-color', '#F9A825');
+      }
+
+      // 2) Create compare map for right side
+      const cmpDiv = document.getElementById('map-compare');
+      cmpDiv.style.display = 'block';
+      cmpDiv.style.pointerEvents = 'none';
+
+      if (compareMap) { compareMap.remove(); compareMap = null; }
+
+      compareMap = new maplibregl.Map({
+        container: 'map-compare',
+        style: {
+          version: 8,
+          sources: {
+            'satellite': {
+              type: 'raster',
+              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tileSize: 256
+            }
+          },
+          layers: [{ id: 'satellite-layer', type: 'raster', source: 'satellite', minzoom: 0, maxzoom: 19 }]
+        },
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+        maxBounds: [[-58.5, 1.5], [-53.5, 6.5]],
+        maxZoom: 15,
+        attributionControl: false,
+        interactive: false
+      });
+
+      compareMap.on('load', async () => {
+        // Load right year data on compare map
+        const rightData = await ensureAMWPeriodLoaded(swipeRightYear);
+        if (rightData) {
+          compareMap.addSource('amw-right', { type: 'geojson', data: rightData });
+          compareMap.addLayer({
+            id: 'amw-right-fill', type: 'fill', source: 'amw-right',
+            paint: { 'fill-color': '#EF5350', 'fill-opacity': 0.6 }
+          });
+          compareMap.addLayer({
+            id: 'amw-right-outline', type: 'line', source: 'amw-right',
+            paint: { 'line-color': '#C62828', 'line-width': 0.8 }
+          });
+        }
+      });
+
+      // Sync main map → compare map
+      function syncCompare() {
+        if (_swipeSyncing || !compareMap) return;
+        _swipeSyncing = true;
+        compareMap.jumpTo({
+          center: map.getCenter(),
+          zoom: map.getZoom(),
+          bearing: map.getBearing(),
+          pitch: map.getPitch()
+        });
+        _swipeSyncing = false;
+      }
+      map.on('move', syncCompare);
+      // Store for cleanup
+      map._swipeSyncHandler = syncCompare;
+
+      // Apply initial clip
+      updateSwipeClip();
+    }
+
+    function updateSwipePosition() {
+      const mapRect = map.getCanvas().getBoundingClientRect();
+      const px = swipePos * mapRect.width;
+      document.getElementById('swipe-bar').style.left = (mapRect.left + px) + 'px';
+      // Position labels
+      const labelL = document.getElementById('swipe-label-left');
+      const labelR = document.getElementById('swipe-label-right');
+      labelL.style.left = (mapRect.left + 12) + 'px';
+      labelR.style.left = (mapRect.left + px + 12) + 'px';
+    }
+
+    function updateSwipeClip() {
+      updateSwipePosition();
+      // Clip compare map container to right side of swipe bar
+      const cmpDiv = document.getElementById('map-compare');
+      const mapRect = map.getCanvas().getBoundingClientRect();
+      const px = swipePos * mapRect.width;
+      cmpDiv.style.clip = `rect(0px, ${mapRect.width}px, ${mapRect.height}px, ${px}px)`;
+    }
+
+    function onSwipeStart(e) {
+      e.preventDefault();
+      swipeDragging = true;
+    }
+
+    function onSwipeMove(e) {
+      if (!swipeDragging || !swipeActive) return;
+      e.preventDefault();
+      const mapRect = map.getCanvas().getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      swipePos = Math.max(0.05, Math.min(0.95, (clientX - mapRect.left) / mapRect.width));
+      updateSwipeClip();
+    }
+
+    function onSwipeEnd() {
+      swipeDragging = false;
+    }
+
+    // Update clip on resize
+    window.addEventListener('resize', () => {
+      if (swipeActive) updateSwipeClip();
+    });
+
+    function stopSwipe() {
+      swipeActive = false;
+      document.getElementById('swipe-bar').style.display = 'none';
+      document.getElementById('swipe-label-left').style.display = 'none';
+      document.getElementById('swipe-label-right').style.display = 'none';
+      // Remove compare map
+      if (compareMap) { compareMap.remove(); compareMap = null; }
+      document.getElementById('map-compare').style.display = 'none';
+      // Remove sync handler
+      if (map._swipeSyncHandler) {
+        map.off('move', map._swipeSyncHandler);
+        delete map._swipeSyncHandler;
+      }
+      // Restore normal AMW visibility
+      updateAMWLayerVisibility();
     }
 
     // ── Place Name Search (Nominatim) ──
